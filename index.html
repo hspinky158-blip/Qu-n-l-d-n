@@ -1571,6 +1571,8 @@ function showAuth(state, extra) {
   authBox.hidden = false;
   const card = (h, body, btns) => `<div class="auth-card"><div class="logo" style="width:44px;height:44px;border-radius:12px"><svg viewBox="0 0 20 20" style="width:26px;height:26px" aria-hidden="true"><path d="M2 11h3l2-6 3 10 2.5-7 1.5 3H18" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h1>${h}</h1>${body}${btns || ''}</div>`;
   if (state === 'loading') authBox.innerHTML = card('Nhịp Dự Án', '<p class="muted">Đang kết nối…</p>');
+  else if (state === 'checking') authBox.innerHTML = card('Đang kiểm tra tài khoản…', `<p class="muted">Đã đăng nhập <b>${esc(extra)}</b>. Đang tải dữ liệu của team.</p>`);
+  else if (state === 'blocked') authBox.innerHTML = card('Cửa sổ đăng nhập bị chặn', '<p class="muted">Trình duyệt đã chặn cửa sổ đăng nhập của Google. Bấm thử lại. Nếu vẫn không được, dùng cách đăng nhập chuyển trang.</p>', '<div style="display:flex;flex-direction:column;gap:8px;width:100%"><button class="btn primary auth-btn" id="gLogin">Thử lại</button><button class="btn" id="gRedirect">Đăng nhập kiểu chuyển trang</button></div>');
   else if (state === 'login' && IN_APP) authBox.innerHTML = card('Mở bằng Chrome hoặc Safari', `<p class="muted">Bạn đang mở link trong ứng dụng ${esc(IN_APP)}. Google không cho đăng nhập trong trình duyệt của ứng dụng này.</p><p class="muted">Bấm nút <b>⋯</b> hoặc <b>⋮</b> ở góc màn hình → <b>Mở bằng trình duyệt</b>. Hoặc sao chép link rồi dán vào Chrome hoặc Safari.</p><p class="mono" style="font-size:12px;word-break:break-all">${esc(location.href)}</p>`, '<button class="btn primary auth-btn" id="gCopy">Sao chép link</button>');
   else if (state === 'login') authBox.innerHTML = card('Nhịp Dự Án', `<p class="muted">Đăng nhập bằng tài khoản Gmail mà người quản lý đã thêm vào team để xem và cập nhật tiến độ.</p>${extra ? `<p class="auth-err">${esc(extra)}</p>` : ''}`, '<button class="btn primary auth-btn" id="gLogin"><svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><path fill="#fff" d="M17.6 9.2c0-.6-.1-1.2-.2-1.7H9v3.3h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.7-3.9 2.7-6.5z"/><path fill="#fff" d="M9 18c2.4 0 4.5-.8 5.9-2.2L12 13.5c-.8.5-1.8.9-3 .9-2.3 0-4.3-1.6-5-3.7H1v2.3A9 9 0 0 0 9 18z" opacity=".85"/><path fill="#fff" d="M4 10.7a5.4 5.4 0 0 1 0-3.4V5H1a9 9 0 0 0 0 8z" opacity=".7"/><path fill="#fff" d="M9 3.6c1.3 0 2.5.5 3.4 1.3L15 2.4A9 9 0 0 0 1 5l3 2.3c.7-2.1 2.7-3.7 5-3.7z" opacity=".9"/></svg>Đăng nhập bằng Google</button>');
   else if (state === 'denied') authBox.innerHTML = card('Bạn chưa có trong team', `<p class="muted">Tài khoản <b>${esc(extra)}</b> chưa được thêm vào team. Nhờ người quản lý vào trang <b>Thành viên</b> → “Mời bằng Gmail” để thêm địa chỉ này, rồi tải lại trang.</p>`, '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn" id="gReload">Tải lại</button><button class="btn" id="gLogout">Dùng tài khoản khác</button></div>');
@@ -1587,10 +1589,16 @@ authBox.addEventListener('click', async e => {
     try { await FB.au.signInWithPopup(FB.auth, provider); }
     catch (err) {
       const c = err && err.code;
-      if (c === 'auth/popup-blocked' || c === 'auth/operation-not-supported-in-this-environment') { try { await FB.au.signInWithRedirect(FB.auth, provider); return; } catch (e2) {} }
-      if (c !== 'auth/popup-closed-by-user' && c !== 'auth/cancelled-popup-request') showAuth('login', authMsg(err));
+      // không tự chuyển sang kiểu chuyển trang: trên điện thoại cách đó hay để lại màn hình trắng
+      if (c === 'auth/popup-blocked' || c === 'auth/operation-not-supported-in-this-environment') showAuth('blocked');
+      else if (c !== 'auth/popup-closed-by-user' && c !== 'auth/cancelled-popup-request') showAuth('login', authMsg(err));
       else b.disabled = false;
     }
+  }
+  if (b.id === 'gRedirect') {
+    b.disabled = true;
+    const provider = new FB.au.GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' });
+    try { await FB.au.signInWithRedirect(FB.auth, provider); } catch (err) { showAuth('login', authMsg(err)); }
   }
 });
 async function bootFirebase() {
@@ -1599,8 +1607,8 @@ async function bootFirebase() {
     const [app, fs, au] = await Promise.all([import(FB_SDK + 'firebase-app.js'), import(FB_SDK + 'firebase-firestore.js'), import(FB_SDK + 'firebase-auth.js')]);
     const fapp = app.initializeApp(FIREBASE_CONFIG);
     FB.fs = fs; FB.au = au; FB.auth = au.getAuth(fapp);
-    let cache; try { cache = fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }); } catch (e) { cache = undefined; }
-    FB.db = fs.initializeFirestore(fapp, cache ? { localCache: cache } : {}, FIRESTORE_DB_ID);
+    // dùng bộ nhớ đệm mặc định (trong RAM): bộ nhớ đệm lưu trên máy hay bị treo trên iPhone
+    FB.db = fs.initializeFirestore(fapp, {}, FIRESTORE_DB_ID);
   } catch (e) { showAuth('error', 'Không tải được Firebase. Kiểm tra mạng rồi tải lại trang.'); return; }
   let started = false;
   // quay về sau khi đăng nhập kiểu chuyển trang (dùng khi điện thoại chặn cửa sổ bật lên)
@@ -1614,13 +1622,18 @@ async function bootFirebase() {
     // phải có tên trong danh sách team (quy tắc Firestore kiểm tra điều này)
     const ref = FB.fs.doc(FB.db, FB_PREFIX + 'team', email);
     const prof = { name: ME.name, photo: u.photoURL || null, email, lastLogin: Date.now() };
+    showAuth('checking', email);
+    const timeout = new Promise((_, rej) => setTimeout(() => rej({ code: 'timeout' }), 15000));
     try {
-      const s = await FB.fs.getDoc(ref);
-      if (s.exists()) await FB.fs.updateDoc(ref, prof);
-      else await FB.fs.setDoc(ref, { kind: 'user', addedAt: Date.now(), ...prof }); // chỉ người quản lý tạo được (theo quy tắc)
+      await Promise.race([(async () => {
+        const s = await FB.fs.getDoc(ref);
+        if (s.exists()) await FB.fs.updateDoc(ref, prof);
+        else await FB.fs.setDoc(ref, { kind: 'user', addedAt: Date.now(), ...prof }); // chỉ người quản lý tạo được (theo quy tắc)
+      })(), timeout]);
     } catch (e) {
       if (e && e.code === 'permission-denied') showAuth('denied', email);
-      else showAuth('error', 'Không kết nối được cơ sở dữ liệu (' + ((e && e.code) || 'lỗi') + ').');
+      else if (e && e.code === 'timeout') showAuth('error', 'Đã đăng nhập ' + email + ' nhưng chưa kết nối được dữ liệu sau 15 giây. Kiểm tra mạng rồi bấm Tải lại. Nếu vẫn vậy, hãy chụp màn hình gửi người quản lý.');
+      else showAuth('error', 'Không kết nối được cơ sở dữ liệu (mã lỗi: ' + ((e && e.code) || 'không rõ') + ').');
       return;
     }
     started = true; authBox.hidden = true; authBox.innerHTML = '';
