@@ -1,3 +1,4 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="light dark"><style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
 <title>Nhịp Dự Án</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -641,7 +642,8 @@ const money = n => (Number(n) || 0).toLocaleString('vi-VN') + ' đ';
 
 /* ===================== GHI DỮ LIỆU ===================== */
 // kind: create | status | comment | assign | due | version | edit (chỉ 6 loại đầu tạo thông báo)
-function log(pid, text, tid, kind, extra) { if (!ME.id && DB.db) return; DB.set('activity', uid('a'), { pid: pid || null, tid: tid || null, actor: ME.id || 'local-me', text, kind: kind || 'edit', at: Date.now(), ...(extra || {}) }); }
+const DEV = uid('d'); // mã riêng của lần mở app này: để báo cả khi chính bạn sửa từ máy hoặc tab khác
+function log(pid, text, tid, kind, extra) { if (!ME.id && DB.db) return; DB.set('activity', uid('a'), { pid: pid || null, tid: tid || null, actor: ME.id || 'local-me', dev: DEV, text, kind: kind || 'edit', at: Date.now(), ...(extra || {}) }); }
 function guard() { if (ME.canWrite === false) { toast('Bạn chỉ có quyền xem.'); return false; } return true; }
 async function patchTask(t, patch, logText, kind, extra) {
   if (!guard()) return;
@@ -1454,6 +1456,9 @@ const BELL_SVG = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.8a5
 const todayKey = o => (o && o.d === today() ? o : { d: today(), ids: [] });
 function relevant(a) { const t = a.tid && S.tasks.get(a.tid); return a.to === ME.id || !!(t && (t.assignee === ME.id || t.createdBy === ME.id)); }
 function isNotif(a) { return a.actor !== ME.id && NOTIFY.has(a.kind) && (!NS.mineOnly || relevant(a)); }
+// thẻ bật lên: người khác làm, hoặc chính bạn làm từ máy/tab khác
+const fromOtherDevice = a => a.actor === ME.id && a.dev && a.dev !== DEV;
+const shouldPop = a => NOTIFY.has(a.kind) && (isNotif(a) || fromOtherDevice(a));
 const notifList = () => S.activity.filter(isNotif).slice(0, 60);
 function reminders() {
   if (!ME.id) return [];
@@ -1512,7 +1517,8 @@ function pop(html, cls, onClick) {
   box.appendChild(el); setTimeout(() => el.remove(), 9000);
 }
 function popActivity(a) {
-  pop(`${avatar(a.actor)}<span class="tx"><b>${esc(person(a.actor) ? person(a.actor).name : 'Ai đó')}</b> ${esc(a.text)}${a.to === ME.id ? ' <b style="color:var(--accent)">· cho bạn</b>' : ''}<small>${esc(projName(a.pid))} · vừa xong</small></span>`, '',
+  const who = fromOtherDevice(a) ? 'Bạn (từ máy khác)' : (person(a.actor) ? person(a.actor).name : 'Ai đó');
+  pop(`${avatar(a.actor)}<span class="tx"><b>${esc(who)}</b> ${esc(a.text)}${a.to === ME.id && !fromOtherDevice(a) ? ' <b style="color:var(--accent)">· cho bạn</b>' : ''}<small>${esc(projName(a.pid))} · vừa xong</small></span>`, '',
     () => { if (a.tid && S.tasks.has(a.tid)) openTask(a.tid); else if (a.pid) go('p-' + a.pid); });
 }
 function checkReminders() {
@@ -1551,10 +1557,21 @@ setInterval(() => { if (!editing(view) && !editing(drawer)) render(); }, 60000);
 /* ===================== KHỞI ĐỘNG ===================== */
 /* ---------- Firebase: đăng nhập Google ---------- */
 const authBox = $('#auth');
+// trình duyệt nhúng trong ứng dụng: Google chặn đăng nhập ở đây
+const IN_APP = (() => { const u = navigator.userAgent || ''; const m = [['Zalo', /Zalo/i], ['Facebook', /FBAN|FBAV|FB_IAB/i], ['Messenger', /Messenger/i], ['Instagram', /Instagram/i], ['TikTok', /TikTok|musical_ly|BytedanceWebview/i], ['LINE', /\bLine\//i]].find(([, r]) => r.test(u)); return m ? m[0] : ''; })();
+const AUTH_MSG = {
+  'auth/unauthorized-domain': 'Tên miền này chưa được cho phép trong Firebase (Authentication → Settings → Authorized domains).',
+  'auth/network-request-failed': 'Mất kết nối mạng, thử lại nhé.',
+  'auth/too-many-requests': 'Thử quá nhiều lần, đợi vài phút rồi thử lại.',
+  'auth/web-storage-unsupported': 'Trình duyệt đang chặn lưu dữ liệu (chế độ riêng tư?). Hãy mở bằng Chrome hoặc Safari thường.',
+  'auth/internal-error': 'Google trả về lỗi. Nếu đang mở trong Zalo hoặc Facebook, hãy mở bằng Chrome hoặc Safari.'
+};
+const authMsg = e => (AUTH_MSG[e && e.code] || 'Chưa đăng nhập được, thử lại nhé.') + (e && e.code ? ` (mã lỗi: ${e.code})` : '');
 function showAuth(state, extra) {
   authBox.hidden = false;
   const card = (h, body, btns) => `<div class="auth-card"><div class="logo" style="width:44px;height:44px;border-radius:12px"><svg viewBox="0 0 20 20" style="width:26px;height:26px" aria-hidden="true"><path d="M2 11h3l2-6 3 10 2.5-7 1.5 3H18" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h1>${h}</h1>${body}${btns || ''}</div>`;
   if (state === 'loading') authBox.innerHTML = card('Nhịp Dự Án', '<p class="muted">Đang kết nối…</p>');
+  else if (state === 'login' && IN_APP) authBox.innerHTML = card('Mở bằng Chrome hoặc Safari', `<p class="muted">Bạn đang mở link trong ứng dụng ${esc(IN_APP)}. Google không cho đăng nhập trong trình duyệt của ứng dụng này.</p><p class="muted">Bấm nút <b>⋯</b> hoặc <b>⋮</b> ở góc màn hình → <b>Mở bằng trình duyệt</b>. Hoặc sao chép link rồi dán vào Chrome hoặc Safari.</p><p class="mono" style="font-size:12px;word-break:break-all">${esc(location.href)}</p>`, '<button class="btn primary auth-btn" id="gCopy">Sao chép link</button>');
   else if (state === 'login') authBox.innerHTML = card('Nhịp Dự Án', `<p class="muted">Đăng nhập bằng tài khoản Gmail mà người quản lý đã thêm vào team để xem và cập nhật tiến độ.</p>${extra ? `<p class="auth-err">${esc(extra)}</p>` : ''}`, '<button class="btn primary auth-btn" id="gLogin"><svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><path fill="#fff" d="M17.6 9.2c0-.6-.1-1.2-.2-1.7H9v3.3h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.7-3.9 2.7-6.5z"/><path fill="#fff" d="M9 18c2.4 0 4.5-.8 5.9-2.2L12 13.5c-.8.5-1.8.9-3 .9-2.3 0-4.3-1.6-5-3.7H1v2.3A9 9 0 0 0 9 18z" opacity=".85"/><path fill="#fff" d="M4 10.7a5.4 5.4 0 0 1 0-3.4V5H1a9 9 0 0 0 0 8z" opacity=".7"/><path fill="#fff" d="M9 3.6c1.3 0 2.5.5 3.4 1.3L15 2.4A9 9 0 0 0 1 5l3 2.3c.7-2.1 2.7-3.7 5-3.7z" opacity=".9"/></svg>Đăng nhập bằng Google</button>');
   else if (state === 'denied') authBox.innerHTML = card('Bạn chưa có trong team', `<p class="muted">Tài khoản <b>${esc(extra)}</b> chưa được thêm vào team. Nhờ người quản lý vào trang <b>Thành viên</b> → “Mời bằng Gmail” để thêm địa chỉ này, rồi tải lại trang.</p>`, '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn" id="gReload">Tải lại</button><button class="btn" id="gLogout">Dùng tài khoản khác</button></div>');
   else authBox.innerHTML = card('Không kết nối được', `<p class="muted">${esc(extra || 'Kiểm tra mạng rồi tải lại trang.')}</p>`, '<button class="btn" id="gReload">Tải lại</button>');
@@ -1562,6 +1579,7 @@ function showAuth(state, extra) {
 authBox.addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.id === 'gReload') location.reload();
+  if (b.id === 'gCopy') { try { await navigator.clipboard.writeText(location.href); b.textContent = 'Đã sao chép, dán vào Chrome hoặc Safari'; } catch (err) { b.textContent = 'Hãy giữ ngón tay lên link ở trên để sao chép'; } return; }
   if (b.id === 'gLogout') { await FB.au.signOut(FB.auth); }
   if (b.id === 'gLogin') {
     b.disabled = true;
@@ -1570,7 +1588,7 @@ authBox.addEventListener('click', async e => {
     catch (err) {
       const c = err && err.code;
       if (c === 'auth/popup-blocked' || c === 'auth/operation-not-supported-in-this-environment') { try { await FB.au.signInWithRedirect(FB.auth, provider); return; } catch (e2) {} }
-      if (c !== 'auth/popup-closed-by-user' && c !== 'auth/cancelled-popup-request') showAuth('login', c === 'auth/unauthorized-domain' ? 'Tên miền này chưa được cho phép trong Firebase (Authentication → Settings → Authorized domains).' : 'Chưa đăng nhập được, thử lại nhé.');
+      if (c !== 'auth/popup-closed-by-user' && c !== 'auth/cancelled-popup-request') showAuth('login', authMsg(err));
       else b.disabled = false;
     }
   }
@@ -1585,6 +1603,8 @@ async function bootFirebase() {
     FB.db = fs.initializeFirestore(fapp, cache ? { localCache: cache } : {}, FIRESTORE_DB_ID);
   } catch (e) { showAuth('error', 'Không tải được Firebase. Kiểm tra mạng rồi tải lại trang.'); return; }
   let started = false;
+  // quay về sau khi đăng nhập kiểu chuyển trang (dùng khi điện thoại chặn cửa sổ bật lên)
+  FB.au.getRedirectResult(FB.auth).catch(e => { if (!started) showAuth('login', authMsg(e)); });
   FB.au.onAuthStateChanged(FB.auth, async u => {
     if (!u) { if (started) { location.reload(); return; } showAuth('login'); return; }
     if (started) return;
@@ -1631,11 +1651,17 @@ async function startData() {
   DB.watch('resources', into(S.resources));
   if (DB.db && ME.id) { const st = await DB.getMine(); const v = st && st.lastSeen; if (v && v > NS.lastSeen) NS.lastSeen = v; }
   if (!NS.lastSeen) NS.lastSeen = Date.now() - 864e5; // lần đầu mở: chỉ coi 24 giờ gần nhất là chưa đọc
-  DB.watch('activity', rows => {
-    const prev = NS.seen; NS.seen = new Set(rows.map(r => r.id));
+  DB.watch('activity', (rows, meta) => {
     S.activity = rows;
-    // chỉ bật thẻ cho hoạt động mới xảy ra sau khi mở app
-    if (prev) rows.filter(a => !prev.has(a.id) && a.at > NS.bootAt - 3000 && isNotif(a)).slice(0, 3).reverse().forEach(popActivity);
+    const ids = new Set(rows.map(r => r.id));
+    // Mốc so sánh là danh sách đầu tiên lấy từ máy chủ (không phải bản lưu tạm trên máy),
+    // nên không phụ thuộc đồng hồ của từng máy. Từ đó, dòng nào mới xuất hiện thì bật thẻ.
+    if (!NS.seen) { if (!meta || !meta.fromCache) NS.seen = ids; }
+    else {
+      const fresh = rows.filter(a => !NS.seen.has(a.id) && a.at > NS.bootAt - 15 * 60e3 && shouldPop(a));
+      fresh.slice(0, 3).reverse().forEach(popActivity);
+      rows.forEach(r => NS.seen.add(r.id));
+    }
     render();
   }, { orderBy: ['at', 'desc'], limit: 250 });
   if (ENV === 'local') window.__pm = { DB, S, ME }; // chỉ để chạy thử từ file trên máy
@@ -1643,3 +1669,5 @@ async function startData() {
 boot();
 })();
 </script>
+
+</body></html>
