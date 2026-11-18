@@ -1,4 +1,4 @@
-<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="light dark"><style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>Nhịp Dự Án</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -154,6 +154,23 @@ table.tbl{width:100%;border-collapse:collapse;min-width:760px}
 .tog:focus-visible{outline:2px solid var(--accent)}
 .tog-sp{width:20px;flex:none;text-align:center;color:var(--muted);font-weight:400}
 tr.sub-row .tt{font-weight:500}
+/* kéo thả việc */
+.grip{flex:none;width:18px;height:22px;display:inline-grid;place-items:center;color:var(--muted);cursor:grab;touch-action:none;user-select:none;border-radius:5px;font-size:14px;opacity:.55;margin-left:-4px}
+tr.row:hover .grip,.grip:focus-visible{opacity:1}
+.grip:hover{background:var(--sunk);color:var(--ink)}
+@media (hover:none){.grip{opacity:.9;width:26px;height:30px;font-size:17px}}
+body.tdrag,body.tdrag *{user-select:none!important;cursor:grabbing!important}
+.drag-ghost{position:fixed;left:0;top:0;z-index:90;pointer-events:none;max-width:280px;padding:7px 11px;border-radius:9px;background:var(--surface);border:1px solid var(--accent);box-shadow:var(--shadow);font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+tr.row.dragging{opacity:.4}
+tr.row.drop-in td{background:var(--accent-soft)!important}
+tr.row.drop-in td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+tr.row.drop-before td{box-shadow:inset 0 3px 0 var(--accent)}
+tr.row.drop-after td{box-shadow:inset 0 -3px 0 var(--accent)}
+.drop-top{display:none;position:fixed;z-index:85;left:50%;transform:translateX(-50%);bottom:max(18px,calc(env(safe-area-inset-bottom,0px) + 12px));align-items:center;justify-content:center;gap:6px;padding:12px 18px;border:2px dashed var(--line);border-radius:12px;background:var(--surface);box-shadow:var(--shadow);color:var(--muted);font-size:13px;font-weight:600;white-space:nowrap;max-width:calc(100vw - 32px)}
+body.tdrag .drop-top{display:flex}
+.drop-top.hot{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.kc.drop-in{outline:2px solid var(--accent);outline-offset:2px;background:var(--accent-soft)}
+.tbl-tip{font-size:12px;margin:0;padding:8px 14px;border-top:1px solid var(--line)}
 .crumbs{color:var(--muted);font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .kc .crumbs{margin-bottom:-4px}
 .dr-path{display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:12.5px;color:var(--muted);margin-bottom:-12px}
@@ -748,6 +765,7 @@ function keep(root, scroller, fn) {
   if (st) { const n = document.getElementById(st.id); if (n) { if (st.typing) n.value = st.v; n.focus({ preventScroll: true }); if (st.typing) { try { n.setSelectionRange(st.s, st.e); } catch (_) {} } } }
 }
 function doRender() {
+  if (TD && TD.on) return; // đang kéo một việc: vẽ lại sau khi thả
   deferred = false; KIDS = null;
   renderSide();
   const pick = $('#pickQ'); if (pick && document.activeElement === pick) { renderView(); renderBell(); wantProfiles(); return; } // đang chọn người: không vẽ lại ngăn chi tiết
@@ -988,18 +1006,18 @@ function tableView(list, p) {
   const cmp = (a, b) => (a.status === 'xong') - (b.status === 'xong') || (a.due || '9999').localeCompare(b.due || '9999') || PR[a.prio].rank - PR[b.prio].rank;
   const sorted = treeOrder(list, cmp);
   const can = ME.canWrite !== false;
-  return `<div class="card"><div class="tbl-wrap"><table class="tbl rtbl" style="min-width:900px"><thead><tr><th>Công việc</th><th>Phụ trách</th><th>Trạng thái</th><th>Ưu tiên</th><th>Hạn</th><th style="width:140px">Tiến độ</th></tr></thead><tbody>
+  return `<div class="card">${can ? '<div class="drop-top" id="dropTop">⤒ Thả vào đây để đưa thành việc chính</div>' : ''}<div class="tbl-wrap"><table class="tbl rtbl" style="min-width:900px"><thead><tr><th>Công việc</th><th>Phụ trách</th><th>Trạng thái</th><th>Ưu tiên</th><th>Hạn</th><th style="width:140px">Tiến độ</th></tr></thead><tbody>
     ${sorted.map(({ t, lvl, kids, cut }) => {
       const di = dueInfo(t), pr = taskProgress(t);
       return `<tr class="row${t.status === 'xong' ? ' done' : ''}${lvl ? ' sub-row' : ''}" data-task="${esc(t.id)}">
-        <td><div class="tt" style="padding-left:${lvl * 22}px">${kids ? `<button class="tog" data-tog="${esc(t.id)}" aria-label="${S.collapsed.has(t.id) ? 'Mở' : 'Thu gọn'} việc con" aria-expanded="${!S.collapsed.has(t.id)}">${S.collapsed.has(t.id) ? '▸' : '▾'}</button>` : (lvl ? '<span class="tog-sp">↳</span>' : '')}<span class="x">${esc(t.title)}</span>${t.version > 1 ? `<span class="chip plain" style="--c:var(--muted)">V${t.version}</span>` : ''}</div><div class="sub" style="padding-left:${lvl * 22 + (kids || lvl ? 24 : 0)}px">${cut ? parentCrumb(t) : ''}${subCount(t)}${checkSub(t)}${(t.links || []).length ? `<span>🔗 ${t.links.length}</span>` : ''}${t.desc ? `<span>${esc(clip(t.desc, 60))}</span>` : ''}</div></td>
+        <td><div class="tt" style="padding-left:${lvl * 22}px">${can ? `<span class="grip" data-grip="${esc(t.id)}" title="Giữ và kéo: thả vào việc khác để thành việc con" aria-hidden="true">⠿</span>` : ''}${kids ? `<button class="tog" data-tog="${esc(t.id)}" aria-label="${S.collapsed.has(t.id) ? 'Mở' : 'Thu gọn'} việc con" aria-expanded="${!S.collapsed.has(t.id)}">${S.collapsed.has(t.id) ? '▸' : '▾'}</button>` : (lvl ? '<span class="tog-sp">↳</span>' : '')}<span class="x">${esc(t.title)}</span>${t.version > 1 ? `<span class="chip plain" style="--c:var(--muted)">V${t.version}</span>` : ''}</div><div class="sub" style="padding-left:${lvl * 22 + (kids || lvl ? 24 : 0)}px">${cut ? parentCrumb(t) : ''}${subCount(t)}${checkSub(t)}${(t.links || []).length ? `<span>🔗 ${t.links.length}</span>` : ''}${t.desc ? `<span>${esc(clip(t.desc, 60))}</span>` : ''}</div></td>
         <td>${personTag(t.assignee)}</td>
         <td>${statusSelect(t)}</td>
         <td><select class="cell inp pr pr-${t.prio}" data-field="prio" data-tid="${esc(t.id)}" aria-label="Ưu tiên" ${can ? '' : 'disabled'}>${PRIOS.map(x => `<option value="${x.k}"${t.prio === x.k ? ' selected' : ''}>${x.l}</option>`).join('')}</select></td>
         <td><input type="date" class="cell ${di.cls}" data-field="due" data-tid="${esc(t.id)}" value="${esc(t.due || '')}" aria-label="Hạn" title="${esc(di.label)}" ${can ? '' : 'disabled'}></td>
         <td><div style="display:flex;align-items:center;gap:8px"><div class="bar" style="flex:1;--pc:var(--s-${t.status === 'xong' ? 'done' : 'doing'})"><i style="width:${pr}%"></i></div><span class="pct">${pr}%</span></div></td>
       </tr>`;
-    }).join('')}</tbody></table></div></div>`;
+    }).join('')}</tbody></table></div>${can ? '<p class="muted tbl-tip">Mẹo: giữ <b>⠿</b> rồi kéo một việc thả vào giữa việc khác để biến nó thành việc con. Thả lên mép trên hoặc dưới để đặt ngang hàng việc đó.</p>' : ''}</div>`;
 }
 // sắp việc theo cây: việc cha rồi đến các việc con (thụt vào). Việc con có việc cha bị lọc mất
 // thì đứng riêng, kèm tên việc cha ("cut"). Việc cha đang thu gọn thì ẩn con cháu.
@@ -1347,7 +1365,7 @@ $('#scrim').onclick = closeTask;
 
 /* ===================== SỰ KIỆN VÙNG CHÍNH ===================== */
 view.addEventListener('click', e => {
-  const sel = e.target.closest('select,input,a,label'); if (sel) return;
+  const sel = e.target.closest('select,input,a,label,[data-grip]'); if (sel) return;
   const tg = e.target.closest('[data-tog]');
   if (tg) { const id = tg.dataset.tog; if (S.collapsed.has(id)) S.collapsed.delete(id); else S.collapsed.add(id); LS.set('pm.collapsed', [...S.collapsed].slice(-300)); render(); return; }
   const tk = e.target.closest('[data-task]'); if (tk) { openTask(tk.dataset.task); return; }
@@ -1436,12 +1454,84 @@ view.addEventListener('submit', async e => {
   render();
   setTimeout(() => { const n = $('#qaddInput'); if (n) n.focus(); }, 40);
 });
-// kéo thả kanban
+// đổi việc cha (kéo thả ở Bảng việc và Kanban)
+const canNest = (id, parent) => !!parent && parent !== id && !descendants(id).some(x => x.id === parent);
+async function moveTask(id, parent) {
+  const t = S.tasks.get(id); if (!t || !guard()) return;
+  parent = parent || null;
+  if (parent && !canNest(id, parent)) { toast('Không thể đưa một việc vào chính việc con của nó.'); return; }
+  const prev = t.parent && S.tasks.has(t.parent) ? t.parent : null;
+  if (prev === parent) return;
+  const np = parent && S.tasks.get(parent);
+  await patchTask(t, { parent, order: Date.now() }, np ? `chuyển “${clip(t.title, 40)}” thành việc con của “${clip(np.title, 40)}”` : `đưa “${clip(t.title, 50)}” thành việc chính`);
+  if (np) { S.collapsed.delete(np.id); LS.set('pm.collapsed', [...S.collapsed]); }
+  KIDS = null; render();
+  toast(np ? `Đã đưa “${clip(t.title, 30)}” vào “${clip(np.title, 30)}”` : `Đã đưa “${clip(t.title, 40)}” thành việc chính`, 'Hoàn tác', async () => { await patchTask(t, { parent: prev }, null); KIDS = null; render(); });
+}
+// Bảng việc: kéo bằng tay cầm ⠿ (dùng pointer nên chạy cả trên điện thoại)
+let TD = null;
+view.addEventListener('pointerdown', e => {
+  const g = e.target.closest('[data-grip]'); if (!g || e.button > 0 || ME.canWrite === false) return;
+  e.preventDefault();
+  TD = { id: g.dataset.grip, x: e.clientX, y: e.clientY, on: false, target: null, zone: '', vy: 0 };
+});
+function tdMarks() { document.querySelectorAll('.drop-in,.drop-before,.drop-after,.drop-top.hot').forEach(x => x.classList.remove('drop-in', 'drop-before', 'drop-after', 'hot')); }
+document.addEventListener('pointermove', e => {
+  if (!TD) return;
+  if (!TD.on) {
+    if (Math.hypot(e.clientX - TD.x, e.clientY - TD.y) < 6) return;
+    const t = S.tasks.get(TD.id); if (!t) { TD = null; return; }
+    TD.on = true; document.body.classList.add('tdrag');
+    TD.ghost = document.createElement('div'); TD.ghost.className = 'drag-ghost'; TD.ghost.textContent = t.title; document.body.appendChild(TD.ghost);
+    const row = view.querySelector(`tr.row[data-task="${CSS.escape(TD.id)}"]`); if (row) row.classList.add('dragging');
+    TD.timer = setInterval(() => { if (TD && TD.vy) view.scrollTop += TD.vy * 14; }, 30);
+  }
+  e.preventDefault();
+  TD.ghost.style.transform = `translate(${e.clientX + 14}px, ${e.clientY + 10}px)`;
+  tdMarks(); TD.target = null; TD.zone = '';
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const top = el && el.closest('#dropTop'), row = el && el.closest('tr.row[data-task]');
+  if (top) { TD.zone = 'top'; top.classList.add('hot'); }
+  else if (row && row.dataset.task !== TD.id && !descendants(TD.id).some(x => x.id === row.dataset.task)) {
+    const r = row.getBoundingClientRect(), f = (e.clientY - r.top) / r.height;
+    TD.target = row.dataset.task; TD.zone = f < 0.25 ? 'before' : f > 0.75 ? 'after' : 'in';
+    row.classList.add('drop-' + TD.zone);
+  }
+  const vr = view.getBoundingClientRect();
+  TD.vy = e.clientY < vr.top + 50 ? -1 : e.clientY > Math.min(vr.bottom, innerHeight) - 50 ? 1 : 0;
+}, { passive: false });
+async function endTD(cancel) {
+  const d = TD; TD = null; if (!d) return;
+  if (d.on) {
+    clearInterval(d.timer); tdMarks(); d.ghost.remove(); document.body.classList.remove('tdrag');
+    view.querySelectorAll('tr.dragging').forEach(x => x.classList.remove('dragging'));
+    if (!cancel) {
+      if (d.zone === 'top') await moveTask(d.id, null);
+      else if (d.target) { const tg = S.tasks.get(d.target); if (tg) await moveTask(d.id, d.zone === 'in' ? tg.id : (tg.parent && S.tasks.has(tg.parent) ? tg.parent : null)); }
+    }
+  }
+  render();
+}
+document.addEventListener('pointerup', () => endTD(false));
+document.addEventListener('pointercancel', () => endTD(true));
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && TD) endTD(true); });
+// Kanban: thả vào cột = đổi trạng thái; thả lên một thẻ khác = thành việc con của thẻ đó
 let dragId = null;
 view.addEventListener('dragstart', e => { const c = e.target.closest('.kc'); if (!c) return; dragId = c.dataset.task; c.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', dragId); } catch (_) {} });
-view.addEventListener('dragend', e => { const c = e.target.closest('.kc'); if (c) c.classList.remove('dragging'); document.querySelectorAll('.col.over').forEach(x => x.classList.remove('over')); dragId = null; });
-view.addEventListener('dragover', e => { const col = e.target.closest('.col'); if (!col || !dragId) return; e.preventDefault(); document.querySelectorAll('.col.over').forEach(x => x !== col && x.classList.remove('over')); col.classList.add('over'); });
-view.addEventListener('drop', e => { const col = e.target.closest('.col'); if (!col || !dragId) return; e.preventDefault(); const t = S.tasks.get(dragId); col.classList.remove('over'); if (t) setStatus(t, col.dataset.col); dragId = null; });
+view.addEventListener('dragend', e => { const c = e.target.closest('.kc'); if (c) c.classList.remove('dragging'); document.querySelectorAll('.col.over,.kc.drop-in').forEach(x => x.classList.remove('over', 'drop-in')); dragId = null; });
+view.addEventListener('dragover', e => {
+  const col = e.target.closest('.col'); if (!col || !dragId) return; e.preventDefault();
+  const card = e.target.closest('.kc'), nest = card && canNest(dragId, card.dataset.task);
+  document.querySelectorAll('.col.over,.kc.drop-in').forEach(x => x !== col && x !== card && x.classList.remove('over', 'drop-in'));
+  if (nest) { col.classList.remove('over'); card.classList.add('drop-in'); } else { if (card) card.classList.remove('drop-in'); col.classList.add('over'); }
+});
+view.addEventListener('drop', e => {
+  const col = e.target.closest('.col'); if (!col || !dragId) return; e.preventDefault();
+  const card = e.target.closest('.kc'), t = S.tasks.get(dragId), id = dragId; dragId = null;
+  document.querySelectorAll('.col.over,.kc.drop-in').forEach(x => x.classList.remove('over', 'drop-in'));
+  if (card && canNest(id, card.dataset.task)) moveTask(id, card.dataset.task);
+  else if (t) setStatus(t, col.dataset.col);
+});
 
 /* ===================== HỘP THOẠI ===================== */
 const modal = $('#modal');
