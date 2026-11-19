@@ -352,6 +352,12 @@ body.tdrag .drop-top{display:flex}
 .pops{position:fixed;z-index:65;right:max(16px,env(safe-area-inset-right,0px));top:max(16px,env(safe-area-inset-top,0px));display:flex;flex-direction:column;gap:8px;width:min(370px,calc(100vw - 32px));pointer-events:none}
 .pop{all:unset;pointer-events:auto;box-sizing:border-box;cursor:pointer;display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;padding:11px 12px;box-shadow:var(--shadow);font-size:13.5px;animation:popin .25s ease-out}
 .pop.due{border-left-color:var(--danger)}
+@media (min-width:821px){ .pops{top:auto;bottom:max(16px,env(safe-area-inset-bottom,0px))} } /* máy tính: góc phải dưới, giống thông báo Windows */
+.desk{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:7px 8px 7px 10px;margin:2px 0 0}
+p.desk{display:block;padding:7px 10px}
+.desk .acts{display:flex;gap:2px;flex:none}
+.desk .btn{flex:none}
+.mgr{font-size:11.5px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
 .pop .tx{flex:1;min-width:0;overflow-wrap:anywhere}
 .pop .tx small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
 .pop .x{border:0;background:none;color:var(--muted);padding:0 2px;font-size:14px}
@@ -741,6 +747,8 @@ async function createTask(pid, fields, quiet) {
   if (!guard()) return null;
   const id = uid('t'), now = Date.now();
   const t = { pid, title: 'Việc mới', status: 'chua-lam', prio: 'tb', assignee: null, start: today(), due: '', version: 1, checklist: [], links: [], desc: '', cost: 0, createdAt: now, createdBy: ME.id || null, updatedAt: now, ...fields };
+  // người quản lý: theo việc cha, nếu không thì người quản lý mặc định của dự án, nếu không thì người tạo việc
+  if (fields.manager === undefined) { const par = t.parent && S.tasks.get(t.parent), pj = S.projects.get(pid); t.manager = (par && par.manager) || (pj && pj.manager) || ME.id || null; }
   if (t.status === 'xong' && !t.doneAt) t.doneAt = now;
   S.tasks.set(id, { ...t, id }); KIDS = null;
   const ok = await DB.set('tasks', id, t);
@@ -922,16 +930,19 @@ function vMine() {
   const doneRecent = mine.filter(t => t.status === 'xong').sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0)).slice(0, 8);
   let body = '';
   for (const [l, arr] of groups) if (arr.length) body += `<tr class="grp"><td colspan="4">${l} · ${arr.length}</td></tr>` + arr.sort((a, b) => (a.due || '9').localeCompare(b.due || '9') || PR[a.prio].rank - PR[b.prio].rank).map(t => mineRow(t)).join('');
+  const managed = [...S.tasks.values()].filter(t => t.manager === ME.id && t.assignee !== ME.id && t.status !== 'xong' && S.projects.has(t.pid) && !S.projects.get(t.pid).archived);
+  if (managed.length) body += `<tr class="grp"><td colspan="4">Việc tôi quản lý · ${managed.length}</td></tr>` + managed.sort((a, b) => (a.due || '9').localeCompare(b.due || '9')).map(t => mineRow(t, true)).join('');
   if (doneRecent.length) body += `<tr class="grp"><td colspan="4">Vừa hoàn thành</td></tr>` + doneRecent.map(t => mineRow(t)).join('');
   return `<div class="wrap"><div class="vh"><div><h1>Việc của tôi</h1><p>${open.length} việc đang mở${open.filter(isOver).length ? ` · <b style="color:var(--danger)">${open.filter(isOver).length} trễ hạn</b>` : ''}</p></div></div>
     <div class="card">${body ? `<div class="tbl-wrap"><table class="tbl rtbl" style="min-width:620px"><thead><tr><th>Công việc</th><th>Trạng thái</th><th>Ưu tiên</th><th>Hạn</th></tr></thead><tbody>${body}</tbody></table></div>` : '<div class="empty-note">Bạn chưa được giao việc nào.</div>'}</div></div>`;
 }
-function mineRow(t) {
+function mineRow(t, managed) {
   const p = S.projects.get(t.pid), di = dueInfo(t);
-  return `<tr class="row${t.status === 'xong' ? ' done' : ''}" data-task="${esc(t.id)}"><td><div class="tt"><span class="x">${esc(t.title)}</span></div><div class="sub" style="--pc:${esc(p.color)}"><span class="person"><span class="pdot"></span>${esc(p.name)}</span>${parentCrumb(t)}${subCount(t)}${checkSub(t)}</div></td>
+  return `<tr class="row${t.status === 'xong' ? ' done' : ''}" data-task="${esc(t.id)}"><td><div class="tt"><span class="x">${esc(t.title)}</span></div><div class="sub" style="--pc:${esc(p.color)}"><span class="person"><span class="pdot"></span>${esc(p.name)}</span>${managed ? `<span>Triển khai: ${t.assignee ? esc(person(t.assignee).name) : 'chưa giao'}</span>` : ''}${parentCrumb(t)}${subCount(t)}${checkSub(t)}</div></td>
     <td>${statusSelect(t)}</td><td><span class="pr pr-${t.prio}">${PR[t.prio] ? PR[t.prio].l : ''}</span></td><td class="due ${di.cls}">${esc(di.label)}</td></tr>`;
 }
-const checkSub = t => (t.checklist && t.checklist.length) ? `<span>☑ ${t.checklist.filter(c => c.done).length}/${t.checklist.length}</span>` : '';
+const mgrLine = t => (t.manager && t.manager !== t.assignee ? `<div class="mgr" title="Người quản lý">QL: ${esc(person(t.manager).name)}</div>` : '');
+const checkSub = t =>(t.checklist && t.checklist.length) ? `<span>☑ ${t.checklist.filter(c => c.done).length}/${t.checklist.length}</span>` : '';
 const statusSelect = t => `<select class="cell inp chip st-${t.status}" data-field="status" data-tid="${esc(t.id)}" aria-label="Trạng thái" ${ME.canWrite === false ? 'disabled' : ''}>${STATUSES.map(s => `<option value="${s.k}"${t.status === s.k ? ' selected' : ''}>${s.l}</option>`).join('')}</select>`;
 
 /* ---------- Dự án ---------- */
@@ -939,7 +950,7 @@ function filteredTasks(p) {
   const f = S.f, q = f.q.trim().toLowerCase();
   return tasksOf(p.id).filter(t => {
     if (f.hideDone && t.status === 'xong') return false;
-    if (f.who === '__none' ? t.assignee : (f.who && t.assignee !== f.who)) return false;
+    if (f.who === '__none' ? t.assignee : (f.who && t.assignee !== f.who && t.manager !== f.who)) return false;
     if (f.prio && t.prio !== f.prio) return false;
     if (f.st && t.status !== f.st) return false;
     if (f.over && !isOver(t)) return false;
@@ -1006,12 +1017,12 @@ function tableView(list, p) {
   const cmp = (a, b) => (a.status === 'xong') - (b.status === 'xong') || (a.due || '9999').localeCompare(b.due || '9999') || PR[a.prio].rank - PR[b.prio].rank;
   const sorted = treeOrder(list, cmp);
   const can = ME.canWrite !== false;
-  return `<div class="card">${can ? '<div class="drop-top" id="dropTop">⤒ Thả vào đây để đưa thành việc chính</div>' : ''}<div class="tbl-wrap"><table class="tbl rtbl" style="min-width:900px"><thead><tr><th>Công việc</th><th>Phụ trách</th><th>Trạng thái</th><th>Ưu tiên</th><th>Hạn</th><th style="width:140px">Tiến độ</th></tr></thead><tbody>
+  return `<div class="card">${can ? '<div class="drop-top" id="dropTop">⤒ Thả vào đây để đưa thành việc chính</div>' : ''}<div class="tbl-wrap"><table class="tbl rtbl" style="min-width:900px"><thead><tr><th>Công việc</th><th>Triển khai / Quản lý</th><th>Trạng thái</th><th>Ưu tiên</th><th>Hạn</th><th style="width:140px">Tiến độ</th></tr></thead><tbody>
     ${sorted.map(({ t, lvl, kids, cut }) => {
       const di = dueInfo(t), pr = taskProgress(t);
       return `<tr class="row${t.status === 'xong' ? ' done' : ''}${lvl ? ' sub-row' : ''}" data-task="${esc(t.id)}">
         <td><div class="tt" style="padding-left:${lvl * 22}px">${can ? `<span class="grip" data-grip="${esc(t.id)}" title="Giữ và kéo: thả vào việc khác để thành việc con" aria-hidden="true">⠿</span>` : ''}${kids ? `<button class="tog" data-tog="${esc(t.id)}" aria-label="${S.collapsed.has(t.id) ? 'Mở' : 'Thu gọn'} việc con" aria-expanded="${!S.collapsed.has(t.id)}">${S.collapsed.has(t.id) ? '▸' : '▾'}</button>` : (lvl ? '<span class="tog-sp">↳</span>' : '')}<span class="x">${esc(t.title)}</span>${t.version > 1 ? `<span class="chip plain" style="--c:var(--muted)">V${t.version}</span>` : ''}</div><div class="sub" style="padding-left:${lvl * 22 + (kids || lvl ? 24 : 0)}px">${cut ? parentCrumb(t) : ''}${subCount(t)}${checkSub(t)}${(t.links || []).length ? `<span>🔗 ${t.links.length}</span>` : ''}${t.desc ? `<span>${esc(clip(t.desc, 60))}</span>` : ''}</div></td>
-        <td>${personTag(t.assignee)}</td>
+        <td>${personTag(t.assignee)}${mgrLine(t)}</td>
         <td>${statusSelect(t)}</td>
         <td><select class="cell inp pr pr-${t.prio}" data-field="prio" data-tid="${esc(t.id)}" aria-label="Ưu tiên" ${can ? '' : 'disabled'}>${PRIOS.map(x => `<option value="${x.k}"${t.prio === x.k ? ' selected' : ''}>${x.l}</option>`).join('')}</select></td>
         <td><input type="date" class="cell ${di.cls}" data-field="due" data-tid="${esc(t.id)}" value="${esc(t.due || '')}" aria-label="Hạn" title="${esc(di.label)}" ${can ? '' : 'disabled'}></td>
@@ -1194,9 +1205,9 @@ const safeUrl = u => { u = String(u || '').trim(); if (!u) return '#'; if (!/^ht
 
 /* ===================== NGĂN CHI TIẾT VIỆC ===================== */
 const drawer = $('#drawer');
-let delArm = 0, unsubComments = null, pickerOpen = false;
+let delArm = 0, unsubComments = null, pickerOpen = ''; // '' | 'assignee' | 'manager'
 function openTask(id) {
-  S.openTask = id; delArm = 0; pickerOpen = false;
+  S.openTask = id; delArm = 0; pickerOpen = '';
   if (unsubComments) unsubComments();
   S.comments = []; S.commentsFor = id;
   unsubComments = DB.watch('comments', rows => { if (S.commentsFor !== id) return; S.comments = rows.sort((a, b) => a.at - b.at); render(); }, { where: ['tid', '==', id] });
@@ -1223,7 +1234,7 @@ function renderDrawer() {
       <textarea class="dr-title" id="tTitle" rows="1" maxlength="200" aria-label="Tên công việc" ${can ? '' : 'readonly'}>${esc(t.title)}</textarea>
       <div class="fields">
         <label for="tStatus">Trạng thái</label><select class="inp" id="tStatus" ${dis}>${STATUSES.map(s => `<option value="${s.k}"${t.status === s.k ? ' selected' : ''}>${s.l}</option>`).join('')}</select>
-        <label>Phụ trách</label><div class="picker" id="picker"><button type="button" class="pick-btn" id="pickBtn" ${dis}>${personTag(t.assignee, 'Chọn người phụ trách')}</button>${pickerOpen ? `<div class="pick-list" id="pickList"><input class="inp" id="pickQ" placeholder="Gõ tên để tìm, hoặc thêm người ngoài" style="margin-bottom:4px"><div id="pickRes"></div></div>` : ''}</div>
+        ${[['assignee', 'Người triển khai', 'Chọn người làm việc này'], ['manager', 'Người quản lý', 'Chọn người theo dõi, duyệt việc này']].map(([f, l, ph]) => `<label>${l}</label><div class="picker"><button type="button" class="pick-btn" data-pickfor="${f}" ${dis}>${personTag(t[f], ph)}</button>${pickerOpen === f ? `<div class="pick-list" id="pickList"><input class="inp" id="pickQ" placeholder="Gõ tên để tìm, hoặc thêm người ngoài" style="margin-bottom:4px"><div id="pickRes"></div></div>` : ''}</div>`).join('')}
         <label for="tPrio">Ưu tiên</label><select class="inp" id="tPrio" ${dis}>${PRIOS.map(x => `<option value="${x.k}"${t.prio === x.k ? ' selected' : ''}>${x.l}</option>`).join('')}</select>
         <label for="tStart">Bắt đầu</label><input class="inp mono" type="date" id="tStart" value="${esc(t.start || '')}" ${dis}>
         <label for="tDue">Hạn</label><div style="display:flex;gap:8px;align-items:center"><input class="inp mono" type="date" id="tDue" value="${esc(t.due || '')}" ${dis} style="flex:1"><span class="due ${di.cls}" style="font-size:12px">${di.state === 'over' || di.state === 'today' ? esc(di.label.split(' · ').pop()) : ''}</span></div>
@@ -1286,7 +1297,7 @@ drawer.addEventListener('keydown', e => {
   if (e.target.id === 'tTitle' && e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
   if (e.target.id === 'cmNew' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('#cmForm').requestSubmit(); }
   if (e.target.id === 'pickQ' && e.key === 'Enter') { e.preventDefault(); const b = $('#pickRes button'); if (b) b.click(); }
-  if (e.target.id === 'pickQ' && e.key === 'Escape') { e.stopPropagation(); pickerOpen = false; renderDrawer(); }
+  if (e.target.id === 'pickQ' && e.key === 'Escape') { e.stopPropagation(); pickerOpen = ''; renderDrawer(); }
 });
 drawer.addEventListener('submit', async e => {
   e.preventDefault();
@@ -1326,13 +1337,15 @@ drawer.addEventListener('click', async e => {
   else if (b.id === 'tVerUp') { const v = (t.version || 1) + 1; patchTask(t, { version: v, status: t.status === 'xong' || t.status === 'cho-phan-hoi' ? 'dang-lam' : t.status }, `lên bản V${v} cho “${clip(t.title, 50)}”`, 'version'); render(); }
   else if (b.dataset.ckdel) { patchTask(t, { checklist: (t.checklist || []).filter(c => c.id !== b.dataset.ckdel) }, null); render(); }
   else if (b.dataset.lkdel) { patchTask(t, { links: (t.links || []).filter(l => l.id !== b.dataset.lkdel) }, null); render(); }
-  else if (b.id === 'pickBtn') { pickerOpen = !pickerOpen; renderDrawer(); }
+  else if (b.dataset.pickfor) { pickerOpen = pickerOpen === b.dataset.pickfor ? '' : b.dataset.pickfor; renderDrawer(); }
   else if (b.dataset.pick !== undefined) {
     let id = b.dataset.pick || null;
+    const field = pickerOpen === 'manager' ? 'manager' : 'assignee';
     if (b.dataset.guest) { if (!guard()) return; id = uid('g'); const name = b.dataset.guest; S.team.set(id, { id, kind: 'guest', name }); await DB.set('team', id, { kind: 'guest', name, addedAt: Date.now() }); }
     else if (id) await ensureTeamMember(id);
-    pickerOpen = false;
-    await patchTask(t, { assignee: id }, id ? `giao “${clip(t.title, 50)}” cho ${person(id).name}` : `bỏ người phụ trách “${clip(t.title, 50)}”`, id ? 'assign' : 'edit', id ? { to: id } : null);
+    pickerOpen = '';
+    if (field === 'manager') await patchTask(t, { manager: id }, id ? `đặt ${person(id).name} quản lý “${clip(t.title, 50)}”` : `bỏ người quản lý “${clip(t.title, 50)}”`, id ? 'assign' : 'edit', id ? { to: id } : null);
+    else await patchTask(t, { assignee: id }, id ? `giao “${clip(t.title, 50)}” cho ${person(id).name} triển khai` : `bỏ người triển khai “${clip(t.title, 50)}”`, id ? 'assign' : 'edit', id ? { to: id } : null);
     const p = S.projects.get(t.pid);
     if (id && p && !(p.members || []).includes(id)) DB.update('projects', p.id, { members: [...(p.members || []), id] });
     render();
@@ -1554,12 +1567,13 @@ function openProjectForm(p) {
       <div class="f"><label for="mpName">Tên dự án</label><input class="inp" id="mpName" required maxlength="120" value="${esc(p.name)}" placeholder="Ví dụ: Chiến dịch Tết 2027 – Khách hàng A"></div>
       <div class="f"><label for="mpDesc">Mục tiêu / mô tả</label><textarea class="inp" id="mpDesc" rows="3" placeholder="Mục tiêu, phạm vi, KPI…">${esc(p.desc || '')}</textarea></div>
       <div class="row2"><div class="f"><label for="mpStart">Bắt đầu</label><input class="inp mono" type="date" id="mpStart" value="${esc(p.start || '')}"></div><div class="f"><label for="mpDue">Hạn chót</label><input class="inp mono" type="date" id="mpDue" value="${esc(p.due || '')}"></div></div>
+      <div class="f"><label for="mpMgr">Người quản lý mặc định</label><select class="inp" id="mpMgr"><option value="">— Người tạo việc</option>${[...new Set([...(ME.id ? [ME.id] : []), ...S.team.keys()])].map(id => `<option value="${esc(id)}"${(isNew ? '' : (p.manager || '')) === id ? ' selected' : ''}>${esc(person(id).name)}${id === ME.id ? ' (bạn)' : ''}</option>`).join('')}</select><span class="muted" style="font-size:12px">Việc mới trong dự án tự nhận người này làm người quản lý. Người quản lý và người triển khai đều nhận thông báo của việc.</span></div>
       <div class="f"><label>Màu nhận diện</label><div class="colors" id="mpColors">${PCOLORS.map(c => `<button type="button" style="--pc:${c}" data-c="${c}" class="${c === color ? 'on' : ''}" aria-label="Màu ${c}"></button>`).join('')}</div></div>
       ${!isNew ? `<div class="f" style="border-top:1px solid var(--line);padding-top:12px;gap:8px"><label>Khác</label><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn sm" id="mpArchive">${p.archived ? 'Đưa trở lại danh sách' : 'Lưu trữ dự án'}</button><button type="button" class="btn sm ghost danger" id="mpDelete">Xóa dự án và toàn bộ việc</button></div></div>` : ''}
     </div>
     <div class="sheet-f"><button type="button" class="btn" data-close>Hủy</button><button class="btn primary" type="submit">${isNew ? 'Tạo dự án' : 'Lưu'}</button></div>`,
   async f => {
-    const data = { name: $('#mpName').value.trim(), desc: $('#mpDesc').value.trim(), start: $('#mpStart').value, due: $('#mpDue').value, color };
+    const data = { name: $('#mpName').value.trim(), desc: $('#mpDesc').value.trim(), start: $('#mpStart').value, due: $('#mpDue').value, color, manager: $('#mpMgr').value || null };
     if (!data.name) return;
     closeModal();
     if (isNew) {
@@ -2450,7 +2464,13 @@ const NS = {
 };
 const BELL_SVG = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.8a5 5 0 0 0-5 5v3.1L3.6 13.6h12.8L15 10.9V7.8a5 5 0 0 0-5-5zM8 16a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
 const todayKey = o => (o && o.d === today() ? o : { d: today(), ids: [] });
-function relevant(a) { const t = a.tid && S.tasks.get(a.tid); return a.to === ME.id || !!(t && (t.assignee === ME.id || t.createdBy === ME.id)); }
+// liên quan đến tôi: giao cho tôi, hoặc việc tôi triển khai / quản lý / đã tạo (cả việc cha của nó)
+function relevant(a) {
+  if (a.to === ME.id) return true;
+  let t = a.tid && S.tasks.get(a.tid), n = 0;
+  while (t && n++ < 15) { if (t.assignee === ME.id || t.manager === ME.id || (!t.manager && t.createdBy === ME.id)) return true; t = t.parent && S.tasks.get(t.parent); }
+  return false;
+}
 function isNotif(a) { return a.actor !== ME.id && NOTIFY.has(a.kind) && (!NS.mineOnly || relevant(a)); }
 // thẻ bật lên: người khác làm, hoặc chính bạn làm từ máy/tab khác
 const fromOtherDevice = a => a.actor === ME.id && a.dev && a.dev !== DEV;
@@ -2460,10 +2480,10 @@ function reminders() {
   if (!ME.id) return [];
   const td = today(), tm = addDays(td, 1);
   return [...S.tasks.values()].filter(t => (t.due === tm || t.due === td) && t.status !== 'xong' && t.status !== 'tam-dung'
-    && S.projects.has(t.pid) && !S.projects.get(t.pid).archived && (t.assignee === ME.id || (!t.assignee && t.createdBy === ME.id)))
+    && S.projects.has(t.pid) && !S.projects.get(t.pid).archived && (t.assignee === ME.id || t.manager === ME.id || (!t.assignee && !t.manager && t.createdBy === ME.id)))
     .sort((a, b) => a.due.localeCompare(b.due));
 }
-const remLabel = t => (t.due === today() ? 'Đến hạn hôm nay' : 'Còn 1 ngày là đến hạn');
+const remLabel = t => (t.due === today() ? 'Đến hạn hôm nay' : 'Còn 1 ngày là đến hạn') + (t.manager === ME.id && t.assignee !== ME.id ? ` · bạn quản lý${t.assignee ? ', ' + person(t.assignee).name + ' triển khai' : ''}` : '');
 const projName = pid => (S.projects.get(pid) || {}).name || '';
 function unreadCount() { const rs = todayKey(NS.remSeen); return notifList().filter(a => a.at > NS.lastSeen).length + reminders().filter(t => !rs.ids.includes(t.id)).length; }
 function renderBell() {
@@ -2475,7 +2495,7 @@ function renderBell() {
 function renderPanel() {
   const rems = reminders(), list = notifList();
   $('#npanel').innerHTML = `<div class="np-h"><div class="r"><h2>Thông báo</h2><button class="btn sm ghost" id="npRead">Đánh dấu đã đọc</button></div>
-    <label class="toggle"><input type="checkbox" id="npMine"${NS.mineOnly ? ' checked' : ''}> Chỉ việc liên quan đến tôi</label></div>
+    <label class="toggle"><input type="checkbox" id="npMine"${NS.mineOnly ? ' checked' : ''}> Chỉ việc liên quan đến tôi</label>${deskRow()}</div>
     <div class="np-b">
     ${rems.length ? `<div class="np-sec">Sắp đến hạn</div>` + rems.map(t => `<button class="ni${NS.hlRem.includes(t.id) ? '' : ' unread'}" data-ntask="${esc(t.id)}"><span class="ico${t.due === today() ? ' hot' : ''}">!</span><span class="tx"><b>${esc(t.title)}</b><small>${remLabel(t)} · ${esc(projName(t.pid))}</small></span></button>`).join('') : ''}
     <div class="np-sec">Hoạt động của team</div>
@@ -2498,19 +2518,77 @@ $('#bellSide').onclick = $('#bellTop').onclick = e => { e.stopPropagation(); tog
 $('#npanel').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.id === 'npRead') { markRead(); NS.hl = NS.lastSeen; NS.hlRem = NS.remSeen.ids.slice(); renderBell(); return; }
+  if (b.id === 'deskOn') { askDesk(); return; }
+  if (b.id === 'deskOff') { DESK.on = false; LS.set('pm.desk', false); renderPanel(); toast('Đã tắt thông báo trên máy tính. Thông báo vẫn hiện trong app.'); return; }
+  if (b.id === 'deskTest') { if (!deskNotify('Nhịp Dự Án', 'Thông báo thử: việc mới, thay đổi và việc sắp đến hạn sẽ hiện ở đây.', 'pm-test')) toast('Chưa gửi được thông báo thử. Kiểm tra quyền thông báo của trình duyệt.'); return; }
   if (b.dataset.ntask && S.tasks.has(b.dataset.ntask)) { togglePanel(false); openTask(b.dataset.ntask); }
   else if (b.dataset.npid && S.projects.has(b.dataset.npid)) { togglePanel(false); go('p-' + b.dataset.npid); }
 });
 $('#npanel').addEventListener('change', e => { if (e.target.id === 'npMine') { NS.mineOnly = e.target.checked; LS.set('pm.notifMine', NS.mineOnly); renderBell(); } });
 document.addEventListener('pointerdown', e => { if (NS.open && !e.target.closest('#npanel,.bell')) togglePanel(false); });
 
-function pop(html, cls, onClick) {
+function pop(html, cls, onClick, ms) {
   const box = $('#pops'); while (box.children.length >= 4) box.firstChild.remove();
   const el = document.createElement('div'); el.className = 'pop ' + (cls || ''); el.setAttribute('role', 'button'); el.tabIndex = 0;
   el.innerHTML = html + '<button class="x" aria-label="Đóng thông báo">✕</button>';
   el.addEventListener('click', e => { el.remove(); if (!e.target.closest('.x') && onClick) onClick(); });
   el.addEventListener('keydown', e => { if (e.key === 'Enter') el.click(); });
-  box.appendChild(el); setTimeout(() => el.remove(), 9000);
+  box.appendChild(el); setTimeout(() => el.remove(), ms || 9000);
+}
+
+/* ---------- thông báo trên máy tính (Windows: góc phải dưới màn hình) ---------- */
+// Dùng thông báo của trình duyệt: hiện cả khi đang mở cửa sổ khác, miễn là trang app vẫn đang mở (thu nhỏ cũng được).
+const DESK = { ok: typeof Notification === 'function' && window.isSecureContext !== false, on: LS.get('pm.desk', true), asked: false };
+const deskActive = () => ENV !== 'claude' && DESK.ok && DESK.on && Notification.permission === 'granted';
+let DESK_ICON = '';
+function deskIcon() {
+  if (DESK_ICON) return DESK_ICON;
+  try {
+    const c = document.createElement('canvas'); c.width = c.height = 96; const g = c.getContext('2d');
+    g.fillStyle = '#C2560F'; g.beginPath(); if (g.roundRect) g.roundRect(0, 0, 96, 96, 22); else g.rect(0, 0, 96, 96); g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 8; g.lineCap = g.lineJoin = 'round'; g.beginPath();
+    [[12, 53], [25, 53], [35, 24], [49, 72], [60, 40], [68, 53], [84, 53]].forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.stroke();
+    DESK_ICON = c.toDataURL('image/png');
+  } catch (e) {}
+  return DESK_ICON;
+}
+function deskNotify(title, body, tag, onClick) {
+  if (!deskActive()) return false;
+  try {
+    const n = new Notification(clip(title, 120), { body: clip(body || '', 200), tag, icon: deskIcon() || undefined });
+    n.onclick = () => { try { window.focus(); } catch (e) {} n.close(); if (onClick) onClick(); };
+    return true;
+  } catch (e) { return false; } // ví dụ Chrome trên điện thoại không cho tạo thông báo kiểu này
+}
+async function askDesk() {
+  if (ENV === 'claude') { toast('Thông báo trên máy tính chỉ có ở bản mở bằng link GitHub.'); return; }
+  if (!DESK.ok) { toast('Trình duyệt này không hỗ trợ thông báo trên máy tính. Hãy mở bằng Chrome hoặc Edge.'); return; }
+  let r = Notification.permission;
+  if (r === 'default') { try { r = await Notification.requestPermission(); } catch (e) { r = Notification.permission; } }
+  if (r === 'granted') { DESK.on = true; LS.set('pm.desk', true); deskNotify('Đã bật thông báo trên máy tính', 'Việc của bạn có thay đổi hoặc sắp đến hạn sẽ hiện ở đây, kể cả khi bạn đang mở cửa sổ khác.', 'pm-test'); }
+  else if (r === 'denied') toast('Trình duyệt đang chặn thông báo. Bấm biểu tượng ổ khóa cạnh thanh địa chỉ → Thông báo → Cho phép, rồi tải lại trang.');
+  if (NS.open) renderPanel();
+}
+function deskRow() {
+  if (ENV === 'claude') return '<p class="desk muted">Thông báo ở góc màn hình máy tính chỉ có ở bản mở bằng link GitHub.</p>';
+  if (!DESK.ok) return '<p class="desk muted">Trình duyệt này không hỗ trợ thông báo trên máy tính. Hãy mở bằng Chrome hoặc Edge.</p>';
+  if (Notification.permission === 'denied') return '<p class="desk muted">Trình duyệt đang chặn thông báo của trang này. Bấm biểu tượng ổ khóa cạnh thanh địa chỉ → <b>Thông báo</b> → <b>Cho phép</b>, rồi tải lại trang.</p>';
+  if (deskActive()) return '<div class="desk"><span>Thông báo trên máy tính: <b>đang bật</b></span><span class="acts"><button class="btn sm ghost" id="deskTest">Gửi thử</button><button class="btn sm ghost" id="deskOff">Tắt</button></span></div>';
+  return '<div class="desk"><span>Hiện thông báo ở góc màn hình máy tính khi việc của bạn thay đổi hoặc sắp đến hạn.</span><button class="btn sm primary" id="deskOn">Bật</button></div>';
+}
+// mời bật một lần (trình duyệt chỉ cho hỏi quyền khi người dùng bấm)
+function maybeAskDesk() {
+  if (DESK.asked || ENV === 'claude' || !DESK.ok || !ME.id || Notification.permission !== 'default' || !DESK.on) return;
+  DESK.asked = true;
+  const last = LS.get('pm.deskAsked', 0); if (Date.now() - last < 3 * 864e5) return;
+  LS.set('pm.deskAsked', Date.now());
+  setTimeout(() => pop('<span class="ico">🔔</span><span class="tx"><b>Bật thông báo trên máy tính?</b><small>Khi việc bạn triển khai hoặc quản lý có thay đổi, hay sắp đến hạn, thông báo sẽ hiện ở góc màn hình. Bấm vào đây để bật.</small></span>', 'due', askDesk, 30000), 1500);
+}
+function deskActivity(a) {
+  const t = a.tid && S.tasks.get(a.tid);
+  const role = a.to === ME.id ? 'Gửi cho bạn' : t ? (t.assignee === ME.id ? 'Việc bạn triển khai' : t.manager === ME.id ? 'Việc bạn quản lý' : '') : '';
+  return deskNotify(`${person(a.actor) ? person(a.actor).name : 'Ai đó'} ${a.text}`, [role, projName(a.pid)].filter(Boolean).join(' · '), 'a-' + a.id,
+    () => { if (a.tid && S.tasks.has(a.tid)) openTask(a.tid); else if (a.pid) go('p-' + a.pid); });
 }
 function popActivity(a) {
   const who = fromOtherDevice(a) ? 'Bạn (từ máy khác)' : (person(a.actor) ? person(a.actor).name : 'Ai đó');
@@ -2519,9 +2597,17 @@ function popActivity(a) {
 }
 function checkReminders() {
   if (!S.loaded.tasks || !S.loaded.projects || !ME.id) return;
+  maybeAskDesk();
   NS.popped = todayKey(NS.popped);
   const fresh = reminders().filter(t => !NS.popped.ids.includes(t.id));
   if (!fresh.length) return;
+  if (deskActive()) {
+    // tag theo ngày: mở app ở nhiều tab cũng chỉ hiện một lần
+    fresh.slice(0, 5).forEach(t => deskNotify(`${t.due === today() ? 'Hôm nay đến hạn' : 'Ngày mai đến hạn'}: ${t.title}`, `${remLabel(t)} · ${projName(t.pid)}`, 'r-' + t.id + '-' + today(), () => openTask(t.id)));
+    if (fresh.length > 5) deskNotify(`Còn ${fresh.length - 5} việc khác sắp đến hạn`, 'Mở Nhịp Dự Án để xem trong chuông thông báo', 'r-more-' + today(), () => togglePanel(true));
+    NS.popped.ids.push(...fresh.map(t => t.id)); LS.set('pm.reminded', NS.popped);
+    return;
+  }
   fresh.slice(0, 3).forEach(t => pop(`<span class="ico${t.due === today() ? ' hot' : ''}">!</span><span class="tx"><b>${esc(t.title)}</b><small>${remLabel(t)} · ${esc(projName(t.pid))}</small></span>`, 'due', () => openTask(t.id)));
   if (fresh.length > 3) pop(`<span class="ico">!</span><span class="tx">Còn ${fresh.length - 3} việc khác sắp đến hạn<small>Bấm để xem trong thông báo</small></span>`, 'due', () => togglePanel(true));
   NS.popped.ids.push(...fresh.map(t => t.id)); LS.set('pm.reminded', NS.popped);
@@ -2668,12 +2754,14 @@ async function startData() {
     if (!NS.seen) { if (!meta || !meta.fromCache) NS.seen = ids; }
     else {
       const fresh = rows.filter(a => !NS.seen.has(a.id) && a.at > NS.bootAt - 15 * 60e3 && shouldPop(a));
-      fresh.slice(0, 3).reverse().forEach(popActivity);
+      // việc mình triển khai / quản lý: thông báo trên máy tính (nếu đã bật); còn lại hiện trong app
+      const desk = deskActive() ? fresh.filter(a => a.actor !== ME.id && relevant(a)).slice(0, 5).filter(deskActivity) : [];
+      fresh.filter(a => !desk.includes(a)).slice(0, 3).reverse().forEach(popActivity);
       rows.forEach(r => NS.seen.add(r.id));
     }
     render();
   }, { orderBy: ['at', 'desc'], limit: 250 });
-  if (ENV === 'local') window.__pm = { DB, S, ME, analyzeText, readDocText, handleFiles, autoAssign }; // chỉ để chạy thử từ file trên máy
+  if (ENV === 'local') window.__pm = { DB, S, ME, analyzeText, readDocText, handleFiles, autoAssign, relevant, reminders, createTask }; // chỉ để chạy thử từ file trên máy
 }
 boot();
 })();
